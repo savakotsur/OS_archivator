@@ -57,20 +57,21 @@ void archiveFiles(const std::string& folderPath, const std::string& archiveName)
         if (fs::is_regular_file(entry)) {
             FileInfo fileInfo;
             fileInfo.filename = entry.path().filename().string();
-            fileInfo.path = entry.path().string();
+            fileInfo.path =  entry.path().parent_path().string();
             fileInfo.size = fs::file_size(entry);
             files.push_back(fileInfo);
         }
     }
 
     // Write header and file contents
-    for (const auto& fileInfo : files) {
+    for (auto& fileInfo : files) {
         // Write header
-        archive << fileInfo.filename << '\0'; // Using '\0' as delimiter
+        std::string relativePath = fileInfo.path;
+        archive << fileInfo.filename << '\0' << relativePath.erase(0, folderPath.size()) << '\0'; // Using '\0' as delimiter
         archive.write(reinterpret_cast<const char*>(&fileInfo.size), sizeof(std::uintmax_t));
 
         // Write file contents
-        std::ifstream inputFile(fileInfo.path, std::ios::binary);
+        std::ifstream inputFile(fileInfo.path + "/" + fileInfo.filename, std::ios::binary);
         if (!inputFile.is_open()) {
             std::cerr << "Failed to open file: " << fileInfo.filename << '\n';
             continue;
@@ -96,11 +97,12 @@ void unarchiveFiles(const std::string& archiveName, const std::string& targetFol
     while (!archive.eof()) {
         FileInfo fileInfo;
         std::getline(archive, fileInfo.filename, '\0');
+        std::getline(archive, fileInfo.path, '\0');
         if (fileInfo.filename.empty()) // Check for end of header
             break;
         archive.read(reinterpret_cast<char*>(&fileInfo.size), sizeof(std::uintmax_t));
-
-        std::ofstream outputFile(targetFolder + "/" + fileInfo.filename, std::ios::binary);
+        fs::create_directories(targetFolder + "/" + fileInfo.path);
+        std::ofstream outputFile(targetFolder + fileInfo.path + "/" + fileInfo.filename, std::ios::binary);
         if (!outputFile.is_open()) {
             std::cerr << "Failed to create file: " << fileInfo.filename << '\n';
             continue;
@@ -127,12 +129,13 @@ bool checkArchive(const std::string& archiveName, const std::string& folderPath)
      while (!archive.eof()) {
         FileInfo fileInfo;
         std::getline(archive, fileInfo.filename, '\0');
+        std::getline(archive, fileInfo.path, '\0');
         if (fileInfo.filename.empty()) // Check for end of header
             break;
         archive.read(reinterpret_cast<char*>(&fileInfo.size), sizeof(std::uintmax_t));
         archivedFiles.push_back(fileInfo);
 
-        std::string folderFilePath = folderPath + "/" + fileInfo.filename;
+        std::string folderFilePath = folderPath + "/" + fileInfo.path + "/" + fileInfo.filename;
         std::ifstream folderFile(folderFilePath, std::ios::binary);
         if (!fs::exists(folderFilePath) || fs::file_size(folderFilePath) != fileInfo.size) {
             archive.close();
@@ -168,4 +171,3 @@ bool checkArchive(const std::string& archiveName, const std::string& folderPath)
 
     return true; // Archive is identical
 }
-
